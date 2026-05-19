@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Post — PostBoard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">PostBoard<span class="nav-logo-dot"></span></a>
+  <div class="nav-right" id="nav-right"></div>
+</nav>
+
+<div id="auth-modal-container"></div>
+
+<div class="container">
+  <div class="form-page">
+    <a href="/" class="back-link">← Back</a>
+
+    <div class="page-header">
+      <h1 class="page-title">New Post</h1>
+    </div>
+
+    <div id="anon-notice" class="anon-notice" style="display:none;">
+      Posting as <strong>Anonymous</strong> — this post will auto-delete after 3 days.
+      <a id="login-link">Log in</a> to post permanently.
+    </div>
+
+    <div class="form-card">
+      <form id="post-form" enctype="multipart/form-data">
+
+        <div class="form-group">
+          <label class="form-label">Title <span style="color:var(--dislike);">*</span></label>
+          <input class="form-input" id="post-title" placeholder="Give your post a title…" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tag</label>
+          <div class="tag-selector" id="tag-selector">
+            <button type="button" class="tag-option" data-tag="">None</button>
+            <button type="button" class="tag-option" data-tag="Proxy">Proxy</button>
+            <button type="button" class="tag-option" data-tag="Mirror">Mirror</button>
+            <button type="button" class="tag-option" data-tag="Bypass">Bypass</button>
+            <button type="button" class="tag-option" data-tag="Exploit">Exploit</button>
+            <button type="button" class="tag-option" data-tag="CVE">CVE</button>
+            <button type="button" class="tag-option" data-tag="XSS">XSS</button>
+            <button type="button" class="tag-option" data-tag="SQLi">SQLi</button>
+            <button type="button" class="tag-option" data-tag="Tool">Tool</button>
+            <button type="button" class="tag-option" data-tag="OSINT">OSINT</button>
+            <button type="button" class="tag-option" data-tag="Payload">Payload</button>
+            <button type="button" class="tag-option" data-tag="Misc">Misc</button>
+          </div>
+          <input type="hidden" id="selected-tag" value="">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Body <span style="font-weight:400;text-transform:none;letter-spacing:0;font-family:'Syne',sans-serif;">(optional)</span></label>
+          <textarea class="form-textarea" id="post-text" placeholder="Details, links, instructions…"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Image <span style="font-weight:400;text-transform:none;letter-spacing:0;font-family:'Syne',sans-serif;">(optional)</span></label>
+          <div class="upload-area" id="upload-area">
+            <input type="file" id="post-image" accept="image/*">
+            <p class="upload-label" id="upload-label">Click to upload or drag & drop<br><span style="font-size:11px;">JPG, PNG, GIF, WebP — max 10MB</span></p>
+            <img class="upload-preview" id="upload-preview" alt="">
+          </div>
+          <p class="error-msg" id="image-error"></p>
+        </div>
+
+        <p class="error-msg" id="form-error"></p>
+
+        <div style="display:flex;gap:12px;margin-top:8px;">
+          <button type="submit" class="btn btn-primary" id="submit-btn">Publish Post</button>
+          <a href="/" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="/js/utils.js"></script>
+<script>
+  document.getElementById('auth-modal-container').innerHTML = authModalHTML();
+
+  // Tag selector
+  let selectedTag = '';
+  document.querySelectorAll('.tag-option').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.tag-option').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedTag = btn.dataset.tag;
+      document.getElementById('selected-tag').value = selectedTag;
+    };
+  });
+  // Default select "None"
+  document.querySelector('.tag-option[data-tag=""]').classList.add('selected');
+
+  // Image preview
+  const fileInput = document.getElementById('post-image');
+  const preview = document.getElementById('upload-preview');
+  const uploadLabel = document.getElementById('upload-label');
+  const uploadArea = document.getElementById('upload-area');
+
+  fileInput.onchange = () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      document.getElementById('image-error').textContent = 'Image must be under 10MB';
+      fileInput.value = '';
+      return;
+    }
+    document.getElementById('image-error').textContent = '';
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = 'block';
+    uploadLabel.textContent = file.name;
+  };
+
+  uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+  uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('drag-over');
+    fileInput.files = e.dataTransfer.files;
+    fileInput.dispatchEvent(new Event('change'));
+  });
+
+  // Submit
+  document.getElementById('post-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const title = document.getElementById('post-title').value.trim();
+    const text = document.getElementById('post-text').value.trim();
+    const image = fileInput.files[0];
+    const errEl = document.getElementById('form-error');
+
+    if (!title) { errEl.textContent = 'Title is required.'; return; }
+    errEl.textContent = '';
+
+    const btn = document.getElementById('submit-btn');
+    btn.textContent = 'Publishing…';
+    btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('title', title);
+    if (text) formData.append('text', text);
+    if (selectedTag) formData.append('tag', selectedTag);
+    if (image) formData.append('image', image);
+
+    try {
+      const res = await fetch('/api/posts', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to post');
+      window.location.href = '/';
+    } catch(e) {
+      errEl.textContent = e.message;
+      btn.textContent = 'Publish Post';
+      btn.disabled = false;
+    }
+  };
+
+  (async () => {
+    const user = await loadUser();
+    renderNav(user);
+    initAuthModal();
+    if (!user.loggedIn) {
+      document.getElementById('anon-notice').style.display = 'block';
+      document.getElementById('login-link').onclick = () => openAuthModal();
+    }
+  })();
+</script>
+</body>
+</html>

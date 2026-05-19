@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Post — PostBoard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">PostBoard<span class="nav-logo-dot"></span></a>
+  <div class="nav-right" id="nav-right"></div>
+</nav>
+
+<div id="auth-modal-container"></div>
+
+<div class="container">
+  <a href="/" class="back-link">← All Posts</a>
+  <div id="post-container">
+    <div class="post-full">
+      <div class="skeleton" style="width:80px;height:16px;margin-bottom:12px;"></div>
+      <div class="skeleton" style="width:100%;height:20px;margin-bottom:8px;"></div>
+      <div class="skeleton" style="width:70%;height:14px;"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/utils.js"></script>
+<script>
+  document.getElementById('auth-modal-container').innerHTML = authModalHTML();
+
+  function escapeHTML(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function tagHTML(tag) {
+    if (!tag) return '';
+    return `<span class="post-tag post-tag-${tag}">${tag}</span>`;
+  }
+
+  const postId = location.pathname.split('/').pop();
+
+  async function loadPost(user) {
+    const container = document.getElementById('post-container');
+    try {
+      const p = await apiFetch(`/api/posts/${postId}`);
+      document.title = `${p.title} — PostBoard`;
+
+      const canDelete = user.loggedIn && p.username === user.username;
+
+      container.innerHTML = `
+        <div class="post-full">
+          <div class="post-full-meta">
+            ${tagHTML(p.tag)}
+            <span class="post-author ${p.username ? '' : 'anon'}">${p.username || 'Anonymous'}</span>
+            <span class="post-time">${timeAgo(p.created_at)}</span>
+            ${p.expires_at ? `<span class="post-expires">${expiresIn(p.expires_at)}</span>` : ''}
+            ${canDelete ? `<button class="btn btn-danger" id="delete-btn" style="margin-left:auto;">✕ delete</button>` : ''}
+          </div>
+          <h1 class="post-full-title">${escapeHTML(p.title)}</h1>
+          ${p.image_url ? `<img class="post-image" src="${p.image_url}" alt="">` : ''}
+          ${p.text ? `<p class="post-text">${escapeHTML(p.text)}</p>` : ''}
+          <div class="post-actions">
+            <button class="react-btn" id="like-btn" data-type="like">▲ <span id="like-count">${p.likes}</span></button>
+            <button class="react-btn" id="dislike-btn" data-type="dislike">▼ <span id="dislike-count">${p.dislikes}</span></button>
+            <button class="share-btn" id="share-btn">share</button>
+          </div>
+        </div>
+
+        <div class="comments-section">
+          <div class="comments-title">Comments</div>
+          <div id="comments-list"></div>
+          <div class="comment-form">
+            <input class="comment-input" id="comment-input" placeholder="Write a comment…">
+            <button class="btn btn-primary" id="comment-submit">Post</button>
+          </div>
+        </div>
+      `;
+
+      // React
+      document.getElementById('like-btn').onclick = () => react('like');
+      document.getElementById('dislike-btn').onclick = () => react('dislike');
+
+      async function react(type) {
+        const data = await apiFetch(`/api/posts/${postId}/react`, { method: 'POST', body: JSON.stringify({ type }) });
+        document.getElementById('like-count').textContent = data.likes;
+        document.getElementById('dislike-count').textContent = data.dislikes;
+      }
+
+      // Share
+      document.getElementById('share-btn').onclick = () => {
+        navigator.clipboard.writeText(location.href).then(() => {
+          const btn = document.getElementById('share-btn');
+          btn.textContent = 'copied!';
+          btn.classList.add('copied');
+          setTimeout(() => { btn.textContent = 'share'; btn.classList.remove('copied'); }, 2000);
+        });
+      };
+
+      // Delete
+      if (canDelete) {
+        document.getElementById('delete-btn').onclick = async () => {
+          if (!confirm('Delete this post?')) return;
+          await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+          window.location.href = '/';
+        };
+      }
+
+      await loadComments();
+
+      document.getElementById('comment-submit').onclick = submitComment;
+      document.getElementById('comment-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitComment();
+      });
+
+    } catch(e) {
+      container.innerHTML = `<div class="empty-state"><p>Post not found or has expired.</p></div>`;
+    }
+  }
+
+  async function loadComments() {
+    const list = document.getElementById('comments-list');
+    const comments = await apiFetch(`/api/posts/${postId}/comments`);
+    if (!comments.length) {
+      list.innerHTML = `<p style="font-size:13px;color:var(--text-muted);padding:8px 0;">No comments yet.</p>`;
+      return;
+    }
+    list.innerHTML = comments.map(c => `
+      <div class="comment">
+        <span class="comment-author ${c.username ? '' : 'anon'}">${c.username || 'anon'}</span>
+        <span class="comment-text">${escapeHTML(c.text)}</span>
+      </div>
+    `).join('');
+  }
+
+  async function submitComment() {
+    const input = document.getElementById('comment-input');
+    const text = input.value.trim();
+    if (!text) return;
+    try {
+      const c = await apiFetch(`/api/posts/${postId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+      input.value = '';
+      const list = document.getElementById('comments-list');
+      const placeholder = list.querySelector('p');
+      if (placeholder) placeholder.remove();
+      const div = document.createElement('div');
+      div.className = 'comment';
+      div.innerHTML = `<span class="comment-author ${c.username ? '' : 'anon'}">${c.username || 'anon'}</span><span class="comment-text">${escapeHTML(c.text)}</span>`;
+      list.appendChild(div);
+    } catch(e) { showToast(e.message); }
+  }
+
+  (async () => {
+    const user = await loadUser();
+    renderNav(user);
+    initAuthModal();
+    await loadPost(user);
+  })();
+</script>
+</body>
+</html>

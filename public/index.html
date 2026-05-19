@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PostBoard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">PostBoard<span class="nav-logo-dot"></span></a>
+  <div class="nav-right" id="nav-right"></div>
+</nav>
+
+<div id="auth-modal-container"></div>
+
+<div class="container">
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-title">Tags</div>
+      <button class="tag-nav-btn active" data-tag="">All</button>
+      <button class="tag-nav-btn" data-tag="Proxy">Proxy</button>
+      <button class="tag-nav-btn" data-tag="Mirror">Mirror</button>
+      <button class="tag-nav-btn" data-tag="Bypass">Bypass</button>
+      <button class="tag-nav-btn" data-tag="Exploit">Exploit</button>
+      <button class="tag-nav-btn" data-tag="CVE">CVE</button>
+      <button class="tag-nav-btn" data-tag="XSS">XSS</button>
+      <button class="tag-nav-btn" data-tag="SQLi">SQLi</button>
+      <button class="tag-nav-btn" data-tag="Tool">Tool</button>
+      <button class="tag-nav-btn" data-tag="OSINT">OSINT</button>
+      <button class="tag-nav-btn" data-tag="Payload">Payload</button>
+      <button class="tag-nav-btn" data-tag="Misc">Misc</button>
+    </div>
+
+    <!-- Main area -->
+    <div class="feed-area">
+      <!-- Posts / Messages tabs -->
+      <div class="view-tabs">
+        <button class="view-tab active" data-view="posts">Posts</button>
+        <button class="view-tab" data-view="rooms">Messages</button>
+      </div>
+
+      <div class="page-header">
+        <h1 class="page-title" id="feed-title">Recent Posts</h1>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="post-count" style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);"></span>
+          <a href="/new" class="btn btn-primary new-btn" id="new-post-btn">+ Post</a>
+          <a href="/new-room" class="btn btn-primary new-btn" id="new-room-btn" style="display:none;">+ Room</a>
+        </div>
+      </div>
+
+      <div class="feed-grid" id="feed"></div>
+    </div>
+
+  </div>
+</div>
+
+<script src="/js/utils.js"></script>
+<script>
+  document.getElementById('auth-modal-container').innerHTML = authModalHTML();
+
+  let currentTag = '';
+  let currentView = 'posts';
+
+  function tagHTML(tag) {
+    if (!tag) return '';
+    return `<span class="post-tag post-tag-${tag}">${tag}</span>`;
+  }
+
+  function escapeHTML(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function renderPostCard(p) {
+    return `
+    <a class="post-card" href="/post/${p.id}">
+      <div class="post-card-top">
+        ${tagHTML(p.tag)}
+        <span class="post-time-small">${timeAgo(p.created_at)}</span>
+      </div>
+      <div class="post-title">${escapeHTML(p.title)}</div>
+      ${p.image_url ? `<img class="post-card-image" src="${p.image_url}" loading="lazy" alt="">` : ''}
+      <div class="post-card-footer">
+        <span class="post-author-small">${p.username || 'anon'}</span>
+        <span class="post-stat">▲ ${p.likes}</span>
+        <span class="post-stat">▼ ${p.dislikes}</span>
+        <span class="post-stat">💬 ${p.comment_count}</span>
+      </div>
+    </a>`;
+  }
+
+  function formatExpiry(seconds) {
+    if (seconds <= 0) return 'expired';
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  function renderRoomCard(r) {
+    return `
+    <a class="post-card" href="/room/${r.id}">
+      <div class="post-card-top">
+        ${tagHTML(r.tag)}
+        <span class="post-time-small room-expiry" data-expires="${r.expires_in}">${formatExpiry(r.expires_in)}</span>
+      </div>
+      <div class="post-title">${escapeHTML(r.title)}</div>
+      <div class="post-card-footer">
+        <span class="post-author-small">${r.username}</span>
+        <span class="post-stat">💬 ${r.message_count}</span>
+        <span class="post-stat" style="margin-left:auto;color:var(--like);font-size:10px;">● LIVE</span>
+      </div>
+    </a>`;
+  }
+
+  async function loadFeed() {
+    const feed = document.getElementById('feed');
+    feed.innerHTML = [1,2,3,4].map(() => `
+      <div class="post-card" style="cursor:default;">
+        <div class="skeleton" style="width:70px;height:16px;"></div>
+        <div class="skeleton" style="width:100%;height:14px;margin-top:8px;"></div>
+        <div class="skeleton" style="width:80%;height:14px;"></div>
+      </div>`).join('');
+
+    try {
+      const tagParam = currentTag ? `?tag=${encodeURIComponent(currentTag)}` : '';
+      if (currentView === 'posts') {
+        const posts = await apiFetch(`/api/posts${tagParam}`);
+        document.getElementById('post-count').textContent = `${posts.length} post${posts.length !== 1 ? 's' : ''}`;
+        document.getElementById('feed-title').textContent = currentTag || 'Recent Posts';
+        feed.innerHTML = posts.length
+          ? posts.map(renderPostCard).join('')
+          : `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">📭</div><p>No posts yet${currentTag ? ' in this category' : ''}.</p></div>`;
+      } else {
+        const rooms = await apiFetch(`/api/rooms${tagParam}`);
+        document.getElementById('post-count').textContent = `${rooms.length} active room${rooms.length !== 1 ? 's' : ''}`;
+        document.getElementById('feed-title').textContent = currentTag ? `${currentTag} Rooms` : 'Active Rooms';
+        feed.innerHTML = rooms.length
+          ? rooms.map(renderRoomCard).join('')
+          : `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">💬</div><p>No active rooms${currentTag ? ' in this category' : ''}. Create one!</p></div>`;
+        startExpiryCountdown();
+      }
+    } catch(e) {
+      feed.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><p>Could not load content.</p></div>`;
+    }
+  }
+
+  // Count down expiry timers on room cards
+  function startExpiryCountdown() {
+    clearInterval(window._expiryTimer);
+    window._expiryTimer = setInterval(() => {
+      document.querySelectorAll('.room-expiry').forEach(el => {
+        let v = parseInt(el.dataset.expires) - 1;
+        if (v < 0) v = 0;
+        el.dataset.expires = v;
+        el.textContent = formatExpiry(v);
+        if (v === 0) el.closest('.post-card').style.opacity = '0.4';
+      });
+    }, 1000);
+  }
+
+  // Tab switching
+  document.querySelectorAll('.view-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentView = tab.dataset.view;
+      document.getElementById('new-post-btn').style.display = currentView === 'posts' ? '' : 'none';
+      document.getElementById('new-room-btn').style.display = currentView === 'rooms' ? '' : 'none';
+      loadFeed();
+    };
+  });
+
+  // Sidebar tag nav
+  document.querySelectorAll('.tag-nav-btn').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.tag-nav-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentTag = btn.dataset.tag;
+      loadFeed();
+    };
+  });
+
+  (async () => {
+    const user = await loadUser();
+    renderNav(user);
+    initAuthModal();
+    loadFeed();
+  })();
+</script>
+</body>
+</html>
